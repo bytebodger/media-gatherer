@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B-Roll Review — {{ job_id }}</title>
+<style>
+  :root {
+    --bg:#14140f; --panel:#1e1e18; --line:#333; --text:#e8e4d8; --muted:#8a8577;
+    --ok:#3fa34d; --stock:#3b82c4; --credit:#d9a441; --unknown:#c0473e; --sel:#e8e4d8;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:14px/1.4 -apple-system,Segoe UI,Roboto,sans-serif; }
+  header { position:sticky; top:0; z-index:10; background:var(--panel);
+           border-bottom:1px solid var(--line); padding:10px 16px;
+           display:flex; gap:16px; align-items:center; }
+  header h1 { font-size:14px; margin:0; font-weight:600; }
+  header .hint { color:var(--muted); font-size:12px; }
+  header .spacer { flex:1; }
+  button { background:#2a2a22; color:var(--text); border:1px solid var(--line);
+           border-radius:6px; padding:5px 10px; cursor:pointer; font-size:12px; }
+  button:hover { border-color:#555; }
+  a { color:inherit; text-decoration:none; }
+  .beat { display:grid; grid-template-columns:280px 1fr; gap:16px;
+          border-bottom:1px solid var(--line); padding:16px; }
+  .script { color:var(--muted); font-size:13px; }
+  .script .id { color:var(--text); font-weight:600; margin-bottom:4px; }
+  .script .intent { color:var(--text); margin:8px 0; }
+  .script .meta { font-size:11px; margin-top:8px; }
+  .sheet { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px;
+           align-content:start; }
+  .tile { position:relative; border:2px solid transparent; border-radius:6px;
+          overflow:hidden; background:#000; aspect-ratio:16/10; cursor:pointer; }
+  .tile img, .tile video { width:100%; height:100%; object-fit:cover; display:block; }
+  .tile:focus { outline:none; border-color:#8a8577; }
+  .tile.sel { border-color:var(--sel); box-shadow:0 0 0 2px var(--sel); }
+  .tile .badge { position:absolute; top:4px; left:4px; width:10px; height:10px;
+                 border-radius:50%; border:1px solid rgba(0,0,0,.5); }
+  .badge.ok{background:var(--ok);} .badge.stock{background:var(--stock);}
+  .badge.credit{background:var(--credit);} .badge.unknown{background:var(--unknown);}
+  .tile .src { position:absolute; bottom:0; left:0; right:0; font-size:10px;
+               background:linear-gradient(transparent,rgba(0,0,0,.8)); color:#ddd;
+               padding:12px 4px 3px; display:flex; justify-content:space-between; gap:4px; }
+  .tile .src span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tile .check { position:absolute; top:3px; right:5px; color:var(--sel);
+                 font-size:14px; display:none; }
+  .tile.sel .check { display:block; }
+  .tile.quarantine { display:none; }
+  body.showq .tile.quarantine { display:block; }
+  .qhead { grid-column:1/-1; color:var(--unknown); font-size:11px; margin-top:8px; }
+  .empty { color:var(--muted); font-size:12px; padding:8px; }
+  /* Missing thumbnail: a hatched placeholder so a failed download reads as
+     "no preview" rather than an indistinguishable black tile. */
+  .tile .noimg { position:absolute; inset:0; display:flex; flex-direction:column;
+          align-items:center; justify-content:center; gap:3px; text-align:center;
+          color:var(--muted); font-size:11px; line-height:1.3;
+          background:repeating-linear-gradient(45deg,#26221b,#26221b 7px,#201d16 7px,#201d16 14px); }
+  .tile .noimg b { font-size:15px; opacity:.6; font-weight:400; }
+</style>
+</head>
+<body>
+
+{% macro tile(beat_id, t, quarantine=false) %}
+<div class="tile {{ 'sel' if t.selected }} {{ 'quarantine' if quarantine }}" tabindex="0"
+     data-beat="{{ beat_id }}" data-source="{{ t.source }}" data-id="{{ t.source_id }}"
+     {% if t.video %}data-video="{{ t.video }}"{% endif %}
+     title="{{ t.title }}{% if t.reject_reason %} — {{ t.reject_reason }}{% endif %}">
+  <span class="badge {{ t.license_class }}"></span>
+  <span class="check">●</span>
+  {% if t.thumb %}<img src="{{ t.thumb }}" loading="lazy" alt="">{% else %}<div class="noimg"><b>⃠</b>no preview</div>{% endif %}
+  <span class="src"><span>{{ t.source }}</span><span>{{ t.license_id }}</span></span>
+</div>
+{% endmacro %}
+
+<header>
+  <h1>B-Roll Review</h1>
+  <span class="hint">job {{ job_id }}</span>
+  <span class="hint">←→↑↓ move · space select · enter next beat · q quarantine</span>
+  <span class="spacer"></span>
+  <button id="toggleQ">Show quarantine</button>
+  <a href="/selections.json?job_id={{ job_id }}" target="_blank"><button>selections.json</button></a>
+</header>
+
+{% for b in beats %}
+<section class="beat" data-beat="{{ b.beat.beat_id }}">
+  <div class="script">
+    <div class="id">{{ b.beat.beat_id }}
+      {% if b.beat.era %}· {{ b.beat.era }}{% endif %}
+      · concreteness {{ '%.2f'|format(b.beat.concreteness) }}</div>
+    <div>{{ b.script_text or b.beat.summary }}</div>
+    <div class="intent">▸ {{ b.beat.visual_intent }}</div>
+    {% if b.beat.entities %}<div class="meta">{{ b.beat.entities|join(' · ') }}</div>{% endif %}
+  </div>
+  <div class="sheet">
+    {% for t in b.tiles %}{{ tile(b.beat.beat_id, t) }}{% else %}<div class="empty">No candidates passed the gates.</div>{% endfor %}
+    {% if b.quarantine %}<div class="qhead">Quarantine · {{ b.quarantine|length }} hidden</div>
+    {% for t in b.quarantine %}{{ tile(b.beat.beat_id, t, true) }}{% endfor %}{% endif %}
+  </div>
+</section>
+{% endfor %}
+
+<script>
+const JOB = "{{ job_id }}";
+function visibleTiles(){ return [...document.querySelectorAll('.tile')].filter(t => t.offsetParent !== null); }
+
+async function toggleSelect(el){
+  const r = await fetch('/select', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({job_id:JOB, beat_id:el.dataset.beat, source:el.dataset.source, source_id:el.dataset.id})});
+  const {selected} = await r.json();
+  el.classList.toggle('sel', selected);
+}
+
+// video hover preview: cached thumbnail until hover, then muted looped playback
+document.addEventListener('mouseover', e => {
+  const t = e.target.closest('.tile'); if (!t || !t.dataset.video || t.querySelector('video')) return;
+  const v = document.createElement('video');
+  v.src = t.dataset.video; v.muted = true; v.loop = true; v.playsInline = true; v.autoplay = true;
+  t.appendChild(v);
+});
+document.addEventListener('mouseout', e => {
+  const t = e.target.closest('.tile'); if (!t) return;
+  const v = t.querySelector('video'); if (v && !t.contains(e.relatedTarget)) v.remove();
+});
+
+// keyboard navigation
+let idx = 0;
+function focusTile(i){
+  const list = visibleTiles(); if (!list.length) return;
+  idx = Math.max(0, Math.min(i, list.length-1));
+  list[idx].focus(); list[idx].scrollIntoView({block:'nearest', behavior:'smooth'});
+}
+function cols(){
+  const list = visibleTiles(); if (list.length<2) return 1;
+  const top = list[0].getBoundingClientRect().top; let n=0;
+  for (const t of list){ if (Math.abs(t.getBoundingClientRect().top-top)<4) n++; else break; } return n||1;
+}
+document.addEventListener('keydown', e => {
+  const list = visibleTiles();
+  if (e.key === ' '){ e.preventDefault(); if (list[idx]) toggleSelect(list[idx]); }
+  else if (e.key === 'ArrowRight'){ e.preventDefault(); focusTile(idx+1); }
+  else if (e.key === 'ArrowLeft'){ e.preventDefault(); focusTile(idx-1); }
+  else if (e.key === 'ArrowDown'){ e.preventDefault(); focusTile(idx+cols()); }
+  else if (e.key === 'ArrowUp'){ e.preventDefault(); focusTile(idx-cols()); }
+  else if (e.key === 'Enter'){
+    e.preventDefault(); const cur = list[idx]; if (!cur) return;
+    const next = cur.closest('.beat')?.nextElementSibling;
+    const t = next && next.querySelector('.tile');
+    if (t){ t.focus(); idx = visibleTiles().indexOf(t); t.scrollIntoView({block:'center'}); }
+  }
+  else if (e.key === 'q'){ document.getElementById('toggleQ').click(); }
+});
+document.addEventListener('click', e => { const t=e.target.closest('.tile'); if(t){ idx=visibleTiles().indexOf(t); toggleSelect(t);} });
+
+document.getElementById('toggleQ').addEventListener('click', () => {
+  const on = document.body.classList.toggle('showq');
+  document.getElementById('toggleQ').textContent = on ? 'Hide quarantine' : 'Show quarantine';
+});
+focusTile(0);
+</script>
+</body>
+</html>
