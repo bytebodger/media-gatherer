@@ -67,11 +67,18 @@
           color:var(--muted); font-size:11px; line-height:1.3;
           background:repeating-linear-gradient(45deg,#26221b,#26221b 7px,#201d16 7px,#201d16 14px); }
   .tile .noimg b { font-size:15px; opacity:.6; font-weight:400; }
-  /* Play glyph marks a video tile; it hides once the hover-preview starts. */
+  /* Play button on a video tile — click to play inline (see startVideo). */
   .tile .play { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
-                font-size:24px; color:#fff; opacity:.85; pointer-events:none;
-                text-shadow:0 1px 5px rgba(0,0,0,.85); }
-  .tile:hover .play { display:none; }
+                width:44px; height:44px; border-radius:50%; background:rgba(0,0,0,.55);
+                display:flex; align-items:center; justify-content:center; cursor:pointer;
+                color:#fff; font-size:18px; padding-left:3px;  /* optically center the ▶ */
+                box-shadow:0 1px 6px rgba(0,0,0,.6); }
+  .tile .play:hover { background:rgba(0,0,0,.85); }
+  .tile.playing .play, .tile.playing .dims, .tile.playing .src { display:none; }
+  /* Overlay the played video on the tile — without absolute positioning it lands
+     in normal flow below the poster and gets clipped by overflow:hidden. */
+  .tile video { position:absolute; inset:0; z-index:4; }
+  .tile.playing video { object-fit:contain; background:#000; }
 </style>
 </head>
 <body class="{{ 'landscape-only' if landscape_default }}">
@@ -93,7 +100,7 @@
 <header>
   <h1>B-Roll Review</h1>
   <span class="hint">job {{ job_id }}</span>
-  <span class="hint">←→↑↓ move · space select · enter next beat · q quarantine · l landscape</span>
+  <span class="hint">←→↑↓ move · space select · enter next beat · q quarantine · l landscape · ▶ click to play video</span>
   <span class="spacer"></span>
   <button id="toggleLS" class="{{ 'on' if landscape_default }}">Landscape only: {{ 'ON' if landscape_default else 'OFF' }}</button>
   <button id="toggleQ">Show quarantine</button>
@@ -129,17 +136,16 @@ async function toggleSelect(el){
   el.classList.toggle('sel', selected);
 }
 
-// video hover preview: cached thumbnail until hover, then muted looped playback
-document.addEventListener('mouseover', e => {
-  const t = e.target.closest('.tile'); if (!t || !t.dataset.video || t.querySelector('video')) return;
+// Click the ▶ button to play a video inline with native controls (scrub, pause,
+// unmute). Kept muted+looped so it autoplays without a gesture prompt.
+function startVideo(tile){
+  if (!tile || !tile.dataset.video || tile.querySelector('video')) return;
   const v = document.createElement('video');
-  v.src = t.dataset.video; v.muted = true; v.loop = true; v.playsInline = true; v.autoplay = true;
-  t.appendChild(v);
-});
-document.addEventListener('mouseout', e => {
-  const t = e.target.closest('.tile'); if (!t) return;
-  const v = t.querySelector('video'); if (v && !t.contains(e.relatedTarget)) v.remove();
-});
+  v.src = tile.dataset.video;
+  v.controls = true; v.autoplay = true; v.loop = true; v.muted = true; v.playsInline = true;
+  tile.classList.add('playing');
+  tile.appendChild(v);
+}
 
 // keyboard navigation
 let idx = 0;
@@ -169,7 +175,11 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'q'){ document.getElementById('toggleQ').click(); }
   else if (e.key === 'l'){ document.getElementById('toggleLS').click(); }
 });
-document.addEventListener('click', e => { const t=e.target.closest('.tile'); if(t){ idx=visibleTiles().indexOf(t); toggleSelect(t);} });
+document.addEventListener('click', e => {
+  const play = e.target.closest('.play');
+  if (play){ e.stopPropagation(); startVideo(play.closest('.tile')); return; }
+  if (e.target.closest('video')) return;   // let native video controls work without selecting
+  const t=e.target.closest('.tile'); if(t){ idx=visibleTiles().indexOf(t); toggleSelect(t);} });
 
 document.getElementById('toggleQ').addEventListener('click', () => {
   const on = document.body.classList.toggle('showq');
