@@ -50,12 +50,23 @@ def _tile(store: Store, cfg: Config, job_id: str, row) -> dict | None:
     thumb = None
     if arow and arow["thumb_path"] and Path(arow["thumb_path"]).exists():
         thumb = "/thumbs/" + Path(arow["thumb_path"]).name
+    w, h = asset.width, asset.height
+    if w and h:
+        dims_label = f"{w}×{h}"          # e.g. 3913×2749
+        dims_warn = w < cfg.min_width          # below the resolution gate
+    else:
+        dims_label = "size?"
+        dims_warn = True
     return {
         "source": asset.source,
         "source_id": asset.source_id,
         "kind": asset.kind,
         "title": asset.title or "",
         "thumb": thumb,
+        "width": w,
+        "height": h,
+        "dims_label": dims_label,
+        "dims_warn": dims_warn,
         "video": asset.full_url if asset.kind == "video" else None,
         "page_url": asset.page_url,
         "license_id": asset.license_id,

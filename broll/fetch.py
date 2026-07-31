@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import io
+import warnings
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 
@@ -19,7 +21,7 @@ from .models import Asset
 from .sources.base import USER_AGENT, get_with_retries
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageFile
     import imagehash
     _HAVE_IMG = True
 except Exception:  # Pillow/imagehash optional at import time
@@ -29,6 +31,79 @@ except Exception:  # Pillow/imagehash optional at import time
 def _thumb_path(cfg: Config, asset: Asset) -> Path:
     safe_id = "".join(c if c.isalnum() else "_" for c in asset.source_id)[:80]
     return cfg.thumbs_dir / f"{asset.source}_{safe_id}.jpg"
+
+
+async def _resolve_image_url(client: httpx.AsyncClient, asset: Asset) -> str | None:
+    """A direct image URL whose header we can read to measure original dimensions.
+
+    Some sources don't hand back a direct file: Internet Archive's full_url is a
+    download *directory* and NASA's is a renditions manifest, so resolve those to
+    the largest actual image first (mirrors export's URL resolution).
+    """
+    if asset.source == "internetarchive":
+        try:
+            r = await get_with_retries(
+                client, f"https://archive.org/metadata/{asset.source_id}", timeout=30.0)
+            files = r.json().get("files", []) if isinstance(r.json(), dict) else []
+            picks = [f for f in files if str(f.get("name", "")).lower().endswith(
+                (".jpg", ".jpeg", ".png", ".tif", ".tiff"))]
+            picks.sort(key=lambda f: int(f.get("size", 0) or 0), reverse=True)
+            if picks:
+                return (f"https://archive.org/download/{asset.source_id}/"
+                        f"{quote(picks[0]['name'])}")
+        except Exception:
+            pass
+        return asset.thumb_url or None
+    if asset.source == "nasa" and asset.full_url and asset.full_url.endswith(".json"):
+        try:
+            r = await get_with_retries(client, asset.full_url, timeout=30.0)
+            items = r.json()
+            if isinstance(items, list):
+                orig = [u for u in items if isinstance(u, str) and "orig" in u.lower()]
+                cand = orig or [u for u in items if isinstance(u, str)
+                                and u.lower().endswith((".jpg", ".jpeg", ".png"))]
+                if cand:
+                    return cand[0]
+        except Exception:
+            pass
+        return asset.thumb_url or None
+    return asset.full_url or asset.thumb_url or None
+
+
+async def _probe_dimensions(client: httpx.AsyncClient, asset: Asset,
+                            sem: asyncio.Semaphore) -> tuple[int, int] | None:
+    """Read just enough of the original image to learn its pixel dimensions.
+
+    Streams bytes into an incremental parser and stops the moment the size is
+    known (a JPEG/PNG header is a few KB), so we never download the full file.
+    """
+    if not _HAVE_IMG:
+        return None
+    url = await _resolve_image_url(client, asset)
+    if not url:
+        return None
+    try:
+        async with sem:
+            # Partial reads of big/odd scans trip PIL warnings (truncated file,
+            # decompression-bomb size, corrupt EXIF) — all harmless here since we
+            # only read the header for its size, never decode. Keep them quiet.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                parser = ImageFile.Parser()
+                read = 0
+                async with client.stream("GET", url, timeout=30.0,
+                                         follow_redirects=True) as r:
+                    r.raise_for_status()
+                    async for chunk in r.aiter_bytes(8192):
+                        parser.feed(chunk)
+                        read += len(chunk)
+                        if parser.image is not None:
+                            return parser.image.size
+                        if read > 3_000_000:  # give up rather than pull a whole file
+                            break
+    except Exception:
+        return None
+    return None
 
 
 def _save_thumb(content: bytes, path: Path) -> str | None:
@@ -45,6 +120,16 @@ def _save_thumb(content: bytes, path: Path) -> str | None:
 async def _fetch_one(client: httpx.AsyncClient, cfg: Config, store: Store,
                      asset: Asset, sem: asyncio.Semaphore) -> str:
     """Return 'cached' | 'ok' | 'skip' (no url) | 'fail' (download/decode error)."""
+    # Original dimensions: adapters that report them (wikimedia, openverse) win;
+    # otherwise reuse a previously-probed value, else measure the original image.
+    if asset.width is None or asset.height is None:
+        existing = store.get_asset(asset.source, asset.source_id)
+        if existing and existing.width and existing.height:
+            asset.width, asset.height = existing.width, existing.height
+        else:
+            dims = await _probe_dimensions(client, asset, sem)
+            if dims:
+                asset.width, asset.height = dims
     # Corpus reuse: if we already have a thumbnail + phash, skip the download.
     row = store.get_asset_row(asset.source, asset.source_id)
     if row and row["thumb_path"] and Path(row["thumb_path"]).exists():

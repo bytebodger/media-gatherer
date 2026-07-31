@@ -46,6 +46,13 @@
   .tile .check { position:absolute; top:3px; right:5px; color:var(--sel);
                  font-size:14px; display:none; }
   .tile.sel .check { display:block; }
+  /* Original pixel dimensions, so you can judge size without clicking through.
+     Turns amber when below the resolution gate (or unknown). */
+  .tile .dims { position:absolute; top:4px; right:4px; font-size:10px; line-height:1;
+                background:rgba(0,0,0,.62); color:#e2ddd0; padding:2px 4px;
+                border-radius:3px; font-variant-numeric:tabular-nums; }
+  .tile .dims.warn { color:var(--credit); }
+  .tile.sel .dims { right:20px; }  /* make room for the selection check */
   .tile.quarantine { display:none; }
   body.showq .tile.quarantine { display:block; }
   .qhead { grid-column:1/-1; color:var(--unknown); font-size:11px; margin-top:8px; }
@@ -68,6 +75,7 @@
      title="{{ t.title }}{% if t.reject_reason %} — {{ t.reject_reason }}{% endif %}">
   <span class="badge {{ t.license_class }}"></span>
   <span class="check">●</span>
+  <span class="dims {{ 'warn' if t.dims_warn }}">{{ t.dims_label }}</span>
   {% if t.thumb %}<img src="{{ t.thumb }}" loading="lazy" alt="">{% else %}<div class="noimg"><b>⃠</b>no preview</div>{% endif %}
   <span class="src"><span>{{ t.source }}</span><span>{{ t.license_id }}</span></span>
 </div>
