@@ -50,7 +50,8 @@ class Config:
     limit_per_query: int = 15
 
     # quality gate
-    min_width: int = 2560
+    min_width: int = 900  # media narrower than this is quarantined; also the
+                          # default for the review page's live min-width filter
     landscape_only: bool = True
     video_min_seconds: float = 4.0
     video_max_seconds: float = 60.0

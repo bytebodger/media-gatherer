@@ -120,7 +120,8 @@ def create_app(cfg: Config, job: str | None) -> FastAPI:
             return templates.TemplateResponse(
                 request, "review.html",
                 {"job_id": job_id, "beats": view,
-                 "landscape_default": cfg.landscape_only},
+                 "landscape_default": cfg.landscape_only,
+                 "min_width_default": cfg.min_width},
             )
         finally:
             st.close()

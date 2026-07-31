@@ -57,7 +57,13 @@
   body.showq .tile.quarantine { display:block; }
   /* Landscape-only filter: hide portrait (taller-than-wide) tiles. On by default. */
   body.landscape-only .tile.portrait { display:none; }
+  /* Min-width filter: hide media narrower than the header setting. !important so
+     it wins over the quarantine display rules regardless of source order. */
+  .tile.narrow { display:none !important; }
   button.on { background:#3a3a2c; border-color:#6a6a4a; }
+  header input { background:#2a2a22; color:var(--text); border:1px solid var(--line);
+                 border-radius:6px; padding:4px 6px; font-size:12px; width:64px; }
+  header label { color:var(--muted); font-size:12px; display:flex; gap:5px; align-items:center; }
   .qhead { grid-column:1/-1; color:var(--unknown); font-size:11px; margin-top:8px; }
   .empty { color:var(--muted); font-size:12px; padding:8px; }
   /* Missing thumbnail: a hatched placeholder so a failed download reads as
@@ -86,6 +92,7 @@
 {% macro tile(beat_id, t, quarantine=false) %}
 <div class="tile {{ 'sel' if t.selected }} {{ 'quarantine' if quarantine }} {{ 'portrait' if t.portrait }}" tabindex="0"
      data-beat="{{ beat_id }}" data-source="{{ t.source }}" data-id="{{ t.source_id }}"
+     data-width="{{ t.width or 0 }}"
      {% if t.video %}data-video="{{ t.video }}"{% endif %}
      title="{{ t.title }}{% if t.reject_reason %} — {{ t.reject_reason }}{% endif %}">
   <span class="badge {{ t.license_class }}"></span>
@@ -102,6 +109,7 @@
   <span class="hint">job {{ job_id }}</span>
   <span class="hint">←→↑↓ move · space select · enter next beat · q quarantine · l landscape · ▶ click to play video</span>
   <span class="spacer"></span>
+  <label>min width <input id="minW" type="number" min="0" step="100" value="{{ min_width_default }}"> px</label>
   <button id="toggleLS" class="{{ 'on' if landscape_default }}">Landscape only: {{ 'ON' if landscape_default else 'OFF' }}</button>
   <button id="toggleQ">Show quarantine</button>
   <a href="/selections.json?job_id={{ job_id }}" target="_blank"><button>selections.json</button></a>
@@ -186,6 +194,19 @@ document.getElementById('toggleQ').addEventListener('click', () => {
   document.getElementById('toggleQ').textContent = on ? 'Hide quarantine' : 'Show quarantine';
 });
 
+// Min-width filter: hide any tile whose original width is below the setting.
+// Width 0 means "unknown" (e.g. video) — never hidden on a measurement we lack.
+const minWInput = document.getElementById('minW');
+function applyMinWidth(){
+  const min = parseInt(minWInput.value, 10) || 0;
+  for (const t of document.querySelectorAll('.tile')){
+    const w = parseInt(t.dataset.width, 10) || 0;
+    t.classList.toggle('narrow', w > 0 && w < min);
+  }
+  focusTile(idx);   // the visible set changed — re-anchor keyboard focus
+}
+minWInput.addEventListener('input', applyMinWidth);
+
 document.getElementById('toggleLS').addEventListener('click', () => {
   const on = document.body.classList.toggle('landscape-only');
   const btn = document.getElementById('toggleLS');
@@ -194,7 +215,7 @@ document.getElementById('toggleLS').addEventListener('click', () => {
   // the visible set just changed — re-anchor focus to a still-visible tile
   focusTile(idx);
 });
-focusTile(0);
+applyMinWidth();   // apply the default min-width filter on load
 </script>
 </body>
 </html>
