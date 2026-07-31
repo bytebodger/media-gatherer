@@ -1,0 +1,12 @@
+# Python build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Local secrets / config
+.env
+
+# broll runtime data: SQLite store, thumbnail cache, exports
+.broll/
