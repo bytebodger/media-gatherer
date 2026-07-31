@@ -55,6 +55,9 @@
   .tile.sel .dims { right:20px; }  /* make room for the selection check */
   .tile.quarantine { display:none; }
   body.showq .tile.quarantine { display:block; }
+  /* Landscape-only filter: hide portrait (taller-than-wide) tiles. On by default. */
+  body.landscape-only .tile.portrait { display:none; }
+  button.on { background:#3a3a2c; border-color:#6a6a4a; }
   .qhead { grid-column:1/-1; color:var(--unknown); font-size:11px; margin-top:8px; }
   .empty { color:var(--muted); font-size:12px; padding:8px; }
   /* Missing thumbnail: a hatched placeholder so a failed download reads as
@@ -66,10 +69,10 @@
   .tile .noimg b { font-size:15px; opacity:.6; font-weight:400; }
 </style>
 </head>
-<body>
+<body class="{{ 'landscape-only' if landscape_default }}">
 
 {% macro tile(beat_id, t, quarantine=false) %}
-<div class="tile {{ 'sel' if t.selected }} {{ 'quarantine' if quarantine }}" tabindex="0"
+<div class="tile {{ 'sel' if t.selected }} {{ 'quarantine' if quarantine }} {{ 'portrait' if t.portrait }}" tabindex="0"
      data-beat="{{ beat_id }}" data-source="{{ t.source }}" data-id="{{ t.source_id }}"
      {% if t.video %}data-video="{{ t.video }}"{% endif %}
      title="{{ t.title }}{% if t.reject_reason %} — {{ t.reject_reason }}{% endif %}">
@@ -84,8 +87,9 @@
 <header>
   <h1>B-Roll Review</h1>
   <span class="hint">job {{ job_id }}</span>
-  <span class="hint">←→↑↓ move · space select · enter next beat · q quarantine</span>
+  <span class="hint">←→↑↓ move · space select · enter next beat · q quarantine · l landscape</span>
   <span class="spacer"></span>
+  <button id="toggleLS" class="{{ 'on' if landscape_default }}">Landscape only: {{ 'ON' if landscape_default else 'OFF' }}</button>
   <button id="toggleQ">Show quarantine</button>
   <a href="/selections.json?job_id={{ job_id }}" target="_blank"><button>selections.json</button></a>
 </header>
@@ -157,12 +161,22 @@ document.addEventListener('keydown', e => {
     if (t){ t.focus(); idx = visibleTiles().indexOf(t); t.scrollIntoView({block:'center'}); }
   }
   else if (e.key === 'q'){ document.getElementById('toggleQ').click(); }
+  else if (e.key === 'l'){ document.getElementById('toggleLS').click(); }
 });
 document.addEventListener('click', e => { const t=e.target.closest('.tile'); if(t){ idx=visibleTiles().indexOf(t); toggleSelect(t);} });
 
 document.getElementById('toggleQ').addEventListener('click', () => {
   const on = document.body.classList.toggle('showq');
   document.getElementById('toggleQ').textContent = on ? 'Hide quarantine' : 'Show quarantine';
+});
+
+document.getElementById('toggleLS').addEventListener('click', () => {
+  const on = document.body.classList.toggle('landscape-only');
+  const btn = document.getElementById('toggleLS');
+  btn.textContent = 'Landscape only: ' + (on ? 'ON' : 'OFF');
+  btn.classList.toggle('on', on);
+  // the visible set just changed — re-anchor focus to a still-visible tile
+  focusTile(idx);
 });
 focusTile(0);
 </script>

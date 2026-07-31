@@ -67,6 +67,7 @@ def _tile(store: Store, cfg: Config, job_id: str, row) -> dict | None:
         "height": h,
         "dims_label": dims_label,
         "dims_warn": dims_warn,
+        "portrait": bool(w and h and w < h),  # taller than wide (unknown => not portrait)
         "video": asset.full_url if asset.kind == "video" else None,
         "page_url": asset.page_url,
         "license_id": asset.license_id,
@@ -108,7 +109,9 @@ def create_app(cfg: Config, job: str | None) -> FastAPI:
                     "tiles": tiles, "quarantine": quarantine,
                 })
             return templates.TemplateResponse(
-                request, "review.html", {"job_id": job_id, "beats": view},
+                request, "review.html",
+                {"job_id": job_id, "beats": view,
+                 "landscape_default": cfg.landscape_only},
             )
         finally:
             st.close()
