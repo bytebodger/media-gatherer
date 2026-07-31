@@ -67,6 +67,11 @@
           color:var(--muted); font-size:11px; line-height:1.3;
           background:repeating-linear-gradient(45deg,#26221b,#26221b 7px,#201d16 7px,#201d16 14px); }
   .tile .noimg b { font-size:15px; opacity:.6; font-weight:400; }
+  /* Play glyph marks a video tile; it hides once the hover-preview starts. */
+  .tile .play { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+                font-size:24px; color:#fff; opacity:.85; pointer-events:none;
+                text-shadow:0 1px 5px rgba(0,0,0,.85); }
+  .tile:hover .play { display:none; }
 </style>
 </head>
 <body class="{{ 'landscape-only' if landscape_default }}">
@@ -80,6 +85,7 @@
   <span class="check">●</span>
   <span class="dims {{ 'warn' if t.dims_warn }}">{{ t.dims_label }}</span>
   {% if t.thumb %}<img src="{{ t.thumb }}" loading="lazy" alt="">{% else %}<div class="noimg"><b>⃠</b>no preview</div>{% endif %}
+  {% if t.is_video %}<span class="play">▶</span>{% endif %}
   <span class="src"><span>{{ t.source }}</span><span>{{ t.license_id }}</span></span>
 </div>
 {% endmacro %}

@@ -106,6 +106,80 @@ async def _probe_dimensions(client: httpx.AsyncClient, asset: Asset,
     return None
 
 
+_VIDEO_EXT = (".mp4", ".mov", ".webm", ".ogv")
+
+
+def _to_seconds(raw) -> float | None:
+    """Parse a duration that may be seconds ('398.42') or clock ('06:38')."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    try:
+        if ":" in s:
+            secs = 0.0
+            for part in s.split(":"):
+                secs = secs * 60 + float(part)
+            return secs
+        return float(s)
+    except ValueError:
+        return None
+
+
+async def _resolve_video(client: httpx.AsyncClient, asset: Asset,
+                         sem: asyncio.Semaphore) -> tuple[str | None, float | None] | None:
+    """Resolve a directly-playable video URL (+ duration when available).
+
+    Search adapters hand back an item id or a renditions manifest, not a media
+    file — so the review UI's hover-preview has nothing to play. Resolve the real
+    file here (mirrors export) and grab the duration so the length gate works.
+    """
+    try:
+        async with sem:
+            if asset.source == "internetarchive":
+                r = await get_with_retries(
+                    client, f"https://archive.org/metadata/{asset.source_id}", timeout=30.0)
+                files = r.json().get("files", []) if isinstance(r.json(), dict) else []
+                vids = [f for f in files
+                        if str(f.get("name", "")).lower().endswith(_VIDEO_EXT)]
+                vids.sort(key=lambda f: int(f.get("size", 0) or 0), reverse=True)
+                if vids:
+                    name = vids[0]["name"]
+                    return (f"https://archive.org/download/{asset.source_id}/{quote(name)}",
+                            _to_seconds(vids[0].get("length")))
+            elif asset.source == "nasa" and asset.full_url and asset.full_url.endswith(".json"):
+                r = await get_with_retries(client, asset.full_url, timeout=30.0)
+                items = r.json()
+                if isinstance(items, list):
+                    mp4s = [u for u in items if isinstance(u, str) and u.lower().endswith(".mp4")]
+                    # prefer a small rendition for the hover-preview, else the original
+                    pick = next((u for u in mp4s if "mobile" in u.lower()), None) \
+                        or next((u for u in mp4s if "preview" in u.lower()), None) \
+                        or next((u for u in mp4s if "orig" in u.lower()), None) \
+                        or (mp4s[0] if mp4s else None)
+                    if pick:
+                        return pick, None
+    except Exception:
+        return None
+    return None
+
+
+async def _ensure_video(client: httpx.AsyncClient, store: Store, asset: Asset,
+                        sem: asyncio.Semaphore) -> None:
+    """Fill full_url with a playable file and duration_s, reusing prior work."""
+    existing = store.get_asset(asset.source, asset.source_id)
+    if existing and existing.full_url and existing.full_url.lower().endswith(_VIDEO_EXT):
+        asset.full_url = existing.full_url          # already resolved on an earlier run
+        asset.duration_s = existing.duration_s
+        return
+    resolved = await _resolve_video(client, asset, sem)
+    if resolved:
+        play_url, duration = resolved
+        if play_url:
+            asset.full_url = play_url
+        if duration is not None:
+            asset.duration_s = duration
+
+
 def _save_thumb(content: bytes, path: Path) -> str | None:
     """Write a downscaled JPEG thumbnail; return its phash. Raises on non-images."""
     if not _HAVE_IMG:
@@ -120,9 +194,13 @@ def _save_thumb(content: bytes, path: Path) -> str | None:
 async def _fetch_one(client: httpx.AsyncClient, cfg: Config, store: Store,
                      asset: Asset, sem: asyncio.Semaphore) -> str:
     """Return 'cached' | 'ok' | 'skip' (no url) | 'fail' (download/decode error)."""
-    # Original dimensions: adapters that report them (wikimedia, openverse) win;
-    # otherwise reuse a previously-probed value, else measure the original image.
-    if asset.width is None or asset.height is None:
+    if asset.kind == "video":
+        # Resolve a playable file + duration so hover-preview works and the
+        # length gate applies. (Video has no meaningful still dimensions.)
+        await _ensure_video(client, store, asset, sem)
+    elif asset.width is None or asset.height is None:
+        # Original dimensions: adapters that report them (wikimedia, openverse)
+        # win; otherwise reuse a prior probe, else measure the original image.
         existing = store.get_asset(asset.source, asset.source_id)
         if existing and existing.width and existing.height:
             asset.width, asset.height = existing.width, existing.height

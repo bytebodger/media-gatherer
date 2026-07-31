@@ -51,7 +51,15 @@ def _tile(store: Store, cfg: Config, job_id: str, row) -> dict | None:
     if arow and arow["thumb_path"] and Path(arow["thumb_path"]).exists():
         thumb = "/thumbs/" + Path(arow["thumb_path"]).name
     w, h = asset.width, asset.height
-    if w and h:
+    if asset.kind == "video":
+        d = asset.duration_s
+        if d:
+            dims_label = f"{int(d) // 60}:{int(d) % 60:02d}"   # e.g. 6:38
+            dims_warn = d < cfg.video_min_seconds or d > cfg.video_max_seconds
+        else:
+            dims_label = "video"
+            dims_warn = False
+    elif w and h:
         dims_label = f"{w}×{h}"          # e.g. 3913×2749
         dims_warn = w < cfg.min_width          # below the resolution gate
     else:
@@ -67,6 +75,7 @@ def _tile(store: Store, cfg: Config, job_id: str, row) -> dict | None:
         "height": h,
         "dims_label": dims_label,
         "dims_warn": dims_warn,
+        "is_video": asset.kind == "video",
         "portrait": bool(w and h and w < h),  # taller than wide (unknown => not portrait)
         "video": asset.full_url if asset.kind == "video" else None,
         "page_url": asset.page_url,
